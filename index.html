@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>AR History Quiz – Ashoka Pillar</title>
+
+  <!-- ============================================================
+       CDN DEPENDENCIES (all free & open-source)
+       A-Frame 1.5.0  ~150 KB gzipped
+       MindAR  1.2.5  ~350 KB gzipped
+       ============================================================ -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    /* ── Reset ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+
+    /* ── Pre-loader ───────────────────────────────────────── */
+    #loader {
+      position: fixed; inset: 0; z-index: 9999;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      transition: opacity 0.6s ease;
+    }
+    #loader.hidden { opacity: 0; pointer-events: none; }
+
+    .loader-pillar {
+      width: 40px; height: 120px;
+      background: linear-gradient(180deg, #d4a843 0%, #b8860b 50%, #8b6914 100%);
+      border-radius: 6px 6px 2px 2px;
+      position: relative;
+      animation: pillar-pulse 1.5s ease-in-out infinite;
+    }
+    .loader-pillar::before {
+      content: ''; position: absolute; top: -30px; left: 50%;
+      transform: translateX(-50%);
+      width: 50px; height: 30px;
+      background: linear-gradient(180deg, #f0d060, #d4a843);
+      border-radius: 50% 50% 4px 4px;
+    }
+    .loader-pillar::after {
+      content: ''; position: absolute; bottom: -10px; left: 50%;
+      transform: translateX(-50%);
+      width: 60px; height: 12px;
+      background: #8b6914;
+      border-radius: 2px;
+    }
+    @keyframes pillar-pulse {
+      0%, 100% { transform: scaleY(1); opacity: 0.8; }
+      50%      { transform: scaleY(1.05); opacity: 1; }
+    }
+
+    .loader-text {
+      color: #f0d060; margin-top: 50px;
+      font-size: 1.1rem; letter-spacing: 1px;
+    }
+    .loader-dots::after {
+      content: ''; animation: dots 1.4s steps(4, end) infinite;
+    }
+    @keyframes dots {
+      0%  { content: ''; }
+      25% { content: '.'; }
+      50% { content: '..'; }
+      75% { content: '...'; }
+    }
+
+    .loader-bar-track {
+      width: 200px; height: 4px; background: rgba(255,255,255,0.15);
+      border-radius: 2px; margin-top: 18px; overflow: hidden;
+    }
+    .loader-bar-fill {
+      width: 40%; height: 100%;
+      background: #f0d060; border-radius: 2px;
+      animation: bar-slide 1.2s ease-in-out infinite;
+    }
+    @keyframes bar-slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+
+    /* ── Quiz HUD (HTML overlay) ──────────────────────────── */
+    #quiz-hud {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      z-index: 100; padding: 12px 16px 20px;
+      background: linear-gradient(transparent, rgba(0,0,0,0.85) 30%);
+      display: none;                       /* shown once target detected */
+      flex-direction: column; align-items: center;
+    }
+
+    #quiz-question {
+      color: #fff; font-size: 1rem; text-align: center;
+      margin-bottom: 10px; line-height: 1.4;
+      text-shadow: 0 1px 4px rgba(0,0,0,0.7);
+    }
+
+    .opt-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 8px; width: 100%; max-width: 360px;
+    }
+
+    .opt-btn {
+      padding: 12px 8px; border: none; border-radius: 10px;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .opt-btn:active { transform: scale(0.95); }
+    .opt-btn.a { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+    .opt-btn.b { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .opt-btn.c { background: linear-gradient(135deg, #10b981, #059669); }
+    .opt-btn.d { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+    /* ── Feedback popup ───────────────────────────────────── */
+    #feedback {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%) scale(0.8);
+      z-index: 200; padding: 24px 28px; border-radius: 16px;
+      text-align: center; color: #fff;
+      font-size: 1.05rem; line-height: 1.5;
+      max-width: 320px; width: 85%;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.3s, transform 0.3s;
+    }
+    #feedback.show {
+      opacity: 1; pointer-events: auto; transform: translate(-50%, -50%) scale(1);
+    }
+    #feedback.correct { background: linear-gradient(135deg, #059669, #047857); }
+    #feedback.wrong   { background: linear-gradient(135deg, #dc2626, #b91c1c); }
+
+    #feedback button {
+      margin-top: 14px; padding: 10px 28px; border: none; border-radius: 8px;
+      background: rgba(255,255,255,0.25); color: #fff;
+      font-size: 0.95rem; font-weight: 600; cursor: pointer;
+      backdrop-filter: blur(4px);
+    }
+
+    /* ── Quit button ──────────────────────────────────────── */
+    #quit-btn {
+      position: fixed; top: 14px; right: 14px; z-index: 300;
+      padding: 8px 18px; border: 2px solid rgba(255,255,255,0.6);
+      border-radius: 8px; background: rgba(0,0,0,0.5);
+      color: #fff; font-size: 0.85rem; font-weight: 600;
+      cursor: pointer; backdrop-filter: blur(6px);
+      display: none;
+    }
+
+    /* ── Instruction banner ───────────────────────────────── */
+    #scan-hint {
+      position: fixed; top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      z-index: 90; color: #fff; font-size: 1.1rem;
+      text-align: center; text-shadow: 0 2px 8px rgba(0,0,0,0.8);
+      animation: hint-fade 2s ease-in-out infinite;
+      pointer-events: none;
+    }
+    @keyframes hint-fade { 0%,100%{opacity:.5} 50%{opacity:1} }
+  </style>
+</head>
+<body>
+
+  <!-- ============== PRE-LOADER ============== -->
+  <div id="loader">
+    <div class="loader-pillar"></div>
+    <p class="loader-text">Loading AR Experience<span class="loader-dots"></span></p>
+    <div class="loader-bar-track"><div class="loader-bar-fill"></div></div>
+  </div>
+
+  <!-- ============== SCAN HINT ============== -->
+  <div id="scan-hint">Point your camera at the<br/>Ashoka Pillar marker image</div>
+
+  <!-- ============== QUIT ============== -->
+  <button id="quit-btn" onclick="quitAR()">✕ Quit</button>
+
+  <!-- ============== QUIZ HUD ============== -->
+  <div id="quiz-hud">
+    <p id="quiz-question"></p>
+    <div class="opt-grid" id="options-grid"></div>
+  </div>
+
+  <!-- ============== FEEDBACK POPUP ============== -->
+  <div id="feedback">
+    <p id="fb-text"></p>
+    <button id="fb-btn" onclick="closeFeedback()">OK</button>
+  </div>
+
+  <!-- ==========================================================
+       A-FRAME + MINDAR SCENE
+
+       HOW TO SET YOUR OWN MARKER:
+       1. Go to  https://hiukim.github.io/mind-ar-js-doc/tools/compile
+       2. Upload your marker image (the Ashoka Pillar picture)
+       3. Download the .mind file
+       4. Host it (e.g. in this same repo) and replace the URL below
+       ========================================================== -->
+  <a-scene
+    mindar-image="imageTargetSrc: ./targets.mind; autoStart: true; uiError: no; uiLoading: no; uiScanning: no;"
+    color-space="sRGB"
+    renderer="colorManagement: true; physicallyCorrectLights: true"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+  >
+    <!-- Camera -->
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!-- Target anchor (index 0 = first compiled image) -->
+    <a-entity mindar-image-target="targetIndex: 0">
+
+      <!-- ── Ashoka Pillar (built from A-Frame primitives) ── -->
+      <!-- Base platform -->
+      <a-cylinder
+        position="0 -0.3 0"
+        radius="0.35" height="0.06"
+        color="#8B7355"
+        material="roughness:0.8; metalness:0.2"
+      ></a-cylinder>
+
+      <!-- Pillar shaft -->
+      <a-cylinder
+        position="0 0.25 0"
+        radius="0.08" height="0.9"
+        color="#D4A843"
+        material="roughness:0.5; metalness:0.3"
+      ></a-cylinder>
+
+      <!-- Decorative ring near top -->
+      <a-torus
+        position="0 0.6 0"
+        radius="0.1" radius-tubular="0.015"
+        rotation="90 0 0"
+        color="#B8860B"
+        material="roughness:0.4; metalness:0.5"
+      ></a-torus>
+
+      <!-- Capital (bell shape → inverted cone) -->
+      <a-cone
+        position="0 0.75 0"
+        radius-bottom="0.14" radius-top="0.06" height="0.15"
+        color="#DAA520"
+        material="roughness:0.3; metalness:0.5"
+      ></a-cone>
+
+      <!-- Abacus disc -->
+      <a-cylinder
+        position="0 0.85 0"
+        radius="0.12" height="0.04"
+        color="#CD950C"
+        material="roughness:0.4; metalness:0.4"
+      ></a-cylinder>
+
+      <!-- Lion (simplified box on top) -->
+      <a-box
+        position="0 0.95 0"
+        width="0.12" height="0.12" depth="0.08"
+        color="#DAA520"
+        material="roughness:0.3; metalness:0.5"
+      ></a-box>
+
+      <!-- Dharma Chakra (flat ring at abacus level) -->
+      <a-torus
+        position="0 0.86 0.13"
+        radius="0.04" radius-tubular="0.005"
+        rotation="0 0 0"
+        color="#B8860B"
+        material="roughness:0.4; metalness:0.6"
+      ></a-torus>
+
+      <!-- Floating label -->
+      <a-entity
+        position="0 1.2 0"
+        text="value: Ashoka Pillar; align: center; color: #FFD700;
+              width: 1.2; font: roboto;"
+        animation="property: position; to: 0 1.25 0; dir: alternate;
+                   dur: 2000; easing: easeInOutSine; loop: true"
+      ></a-entity>
+
+      <!-- Subtitle -->
+      <a-entity
+        position="0 1.1 0"
+        text="value: circa 250 BCE; align: center; color: #FFF8DC;
+              width: 0.8; font: roboto;"
+      ></a-entity>
+
+    </a-entity>
+  </a-scene>
+
+  <!-- ============== APPLICATION LOGIC ============== -->
+  <script>
+    /* ── Quiz data bank ────────────────────────────────── */
+    const quizBank = [
+      {
+        q: "Who erected the famous Ashoka Pillars across India?",
+        opts: ["Emperor Ashoka", "Chandragupta Maurya", "King Harsha", "Akbar"],
+        correct: 0,
+        explanation: "Emperor Ashoka (304–232 BCE) of the Maurya dynasty erected stone pillars inscribed with his edicts promoting Dharma across the Indian subcontinent."
+      },
+      {
+        q: "What animal is at the top of the Sarnath Ashoka Pillar capital?",
+        opts: ["Elephant", "Horse", "Four Lions", "Bull"],
+        correct: 2,
+        explanation: "The Sarnath Lion Capital features four Asiatic lions standing back-to-back. It was adopted as the National Emblem of India in 1950."
+      },
+      {
+        q: "What wheel appears on the Ashoka Pillar's abacus?",
+        opts: ["Dharma Chakra", "Sun Wheel", "Prayer Wheel", "Potter's Wheel"],
+        correct: 0,
+        explanation: "The 24-spoke Dharma Chakra (Wheel of Law) on the abacus represents righteousness and truth. It also appears on the Indian national flag."
+      },
+      {
+        q: "In which script are Ashoka's edicts primarily written?",
+        opts: ["Devanagari", "Brahmi", "Sanskrit", "Kharosthi"],
+        correct: 1,
+        explanation: "Most of Ashoka's edicts are written in Brahmi script, one of the oldest writing systems in South Asia, from which many modern Indian scripts evolved."
+      },
+      {
+        q: "What message did Ashoka's pillar edicts primarily convey?",
+        opts: ["War strategies", "Non-violence & Dharma", "Trade routes", "Tax laws"],
+        correct: 1,
+        explanation: "After the devastating Kalinga War, Ashoka embraced Buddhism and used his pillars to spread messages of non-violence (Ahimsa), religious tolerance, and moral conduct."
+      }
+    ];
+
+    let currentQ = 0;
+    let targetVisible = false;
+
+    /* ── DOM refs ───────────────────────────────────────── */
+    const loader      = document.getElementById('loader');
+    const scanHint    = document.getElementById('scan-hint');
+    const quizHud     = document.getElementById('quiz-hud');
+    const qText       = document.getElementById('quiz-question');
+    const optsGrid    = document.getElementById('options-grid');
+    const feedback    = document.getElementById('feedback');
+    const fbText      = document.getElementById('fb-text');
+    const fbBtn       = document.getElementById('fb-btn');
+    const quitBtn     = document.getElementById('quit-btn');
+
+    const btnClasses = ['a','b','c','d'];
+
+    /* ── Render a question ─────────────────────────────── */
+    function renderQuestion() {
+      const data = quizBank[currentQ];
+      qText.textContent = `Q${currentQ + 1}/${quizBank.length}: ${data.q}`;
+      optsGrid.innerHTML = '';
+      data.opts.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        btn.className = `opt-btn ${btnClasses[i]}`;
+        btn.textContent = opt;
+        btn.addEventListener('click', () => handleAnswer(i));
+        optsGrid.appendChild(btn);
+      });
+    }
+
+    /* ── Answer handler ────────────────────────────────── */
+    function handleAnswer(idx) {
+      const data = quizBank[currentQ];
+      if (idx === data.correct) {
+        showFeedback(true, `✓ Correct!\n${data.explanation}`);
+      } else {
+        showFeedback(false, `✗ That's not right.\nTry again — think about ancient Indian history!`);
+      }
+    }
+
+    function showFeedback(isCorrect, msg) {
+      feedback.className = isCorrect ? 'correct show' : 'wrong show';
+      fbText.textContent = msg;
+      fbBtn.textContent  = isCorrect ? 'Next Question' : 'Try Again';
+      fbBtn.onclick = () => {
+        if (isCorrect) {
+          currentQ++;
+          if (currentQ >= quizBank.length) {
+            currentQ = 0;
+            showFeedback(true, '🏆 You completed the quiz!\nStarting over — keep learning!');
+            return;
+          }
+        }
+        closeFeedback();
+        renderQuestion();
+      };
+    }
+
+    function closeFeedback() {
+      feedback.classList.remove('show');
+    }
+
+    /* ── Quit AR ───────────────────────────────────────── */
+    function quitAR() {
+      /* Stop all camera tracks */
+      const videos = document.querySelectorAll('video');
+      videos.forEach(v => {
+        if (v.srcObject) {
+          v.srcObject.getTracks().forEach(t => t.stop());
+        }
+      });
+      window.location.reload();
+    }
+
+    /* ── MindAR events ─────────────────────────────────── */
+    const sceneEl = document.querySelector('a-scene');
+
+    sceneEl.addEventListener('renderstart', () => {
+      /* AR renderer is ready — hide loader */
+      loader.classList.add('hidden');
+      quitBtn.style.display = 'block';
+    });
+
+    /* Target found / lost */
+    const target = document.querySelector('[mindar-image-target]');
+
+    target.addEventListener('targetFound', () => {
+      targetVisible = true;
+      scanHint.style.display = 'none';
+      quizHud.style.display = 'flex';
+      renderQuestion();
+    });
+
+    target.addEventListener('targetLost', () => {
+      targetVisible = false;
+      quizHud.style.display = 'none';
+      scanHint.style.display = 'block';
+    });
+
+    /* Fallback: hide loader after 12s even if renderstart didn't fire */
+    setTimeout(() => { loader.classList.add('hidden'); quitBtn.style.display = 'block'; }, 12000);
+  </script>
+</body>
+</html>
